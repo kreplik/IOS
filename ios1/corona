@@ -1,0 +1,405 @@
+#!/bin/sh
+
+export POSIXLY_CORRECT=yes
+
+help()
+{
+    echo "Usage: corona -h"
+    echo ""
+    echo "infected — spočítá počet nakažených"
+    echo "merge — sloučí několik souborů se záznamy do jednoho."
+    echo "gender — vypíše počet nakažených pro jednotlivá pohlaví."
+    echo "age — vypíše statistiku počtu nakažených osob dle věku."
+    echo "daily — vypíše statistiku nakažených osob pro jednotlivé dny."
+    echo "monthly — vypíše statistiku nakažených osob pro jednotlivé měsíce."
+    echo "yearly — vypíše statistiku nakažených osob pro jednotlivé roky."
+    echo "countries — vypíše statistiku nakažených osob pro jednotlivé země nákazy."
+    echo "districts — vypíše statistiku nakažených osob pro jednotlivé okresy."
+    echo "regions — vypíše statistiku nakažených osob pro jednotlivé kraje."
+    echo ""
+    echo "-a DATETIME: jsou uvažovány pouze záznamy PO tomto datu (včetně tohoto data)"
+    echo "-b DATETIME — before: jsou uvažovány pouze záznamy PŘED tímto datem (včetně tohoto data)"
+    echo "-g GENDER — jsou uvažovány pouze záznamy nakažených osob daného pohlaví. GENDER může být M (muži) nebo Z (ženy)"
+    echo "-s [WIDTH] u příkazů gender, age, daily, monthly, yearly, countries, districts a regions vypisuje data ne číselně, ale graficky v podobě histogramů"
+}
+
+age_counter()
+{
+    INPUT=$(cat "$1")
+    A1=$2
+    A2=$3
+    CHECK=X
+    
+    
+    RES=$(echo "$INPUT" | awk -F, \
+    -v AGE1="$A1" \
+    -v AGE2="$A2" \
+    -v CHAR="$CHECK" \
+    '{
+        if ($3 <= AGE2 && $3 >= AGE1)
+        {
+            N++
+        }
+        
+        if (AGE1 == CHAR && AGE2 == CHAR)
+        {
+            if ($3 !~ /^[0-9]+/ && $3 !~ /^[a-z]+$/)
+            { 
+              X++
+            }
+        }
+
+        
+    }END{
+    if (AGE1 <= 105)
+     {
+        result=sprintf("%d-%d:", AGE1, AGE2)
+        print(result, N)
+    }
+    if (AGE1 == 106) 
+    {
+        result=sprintf(">%d:", AGE1 -1)
+        print(result, N)
+    }
+    
+    if (AGE1 == CHAR)
+    {
+         result="None:"
+         print(result, X)
+    }
+     
+     }' | awk -F: '{printf("%6-s: %d", $1, $2)
+     }'
+    )
+     
+    echo "$RES"
+}
+
+uniq_counter()
+{
+    FIELD=$2
+    RES=$(cat $1 | awk -F, -v F="$FIELD" 'NR==1{next} {print $F}' | sort | uniq -c | awk -F ' ' \
+    -v F="$FIELD" \
+    '{  
+        if ($2 ~ /[0-9]+/ || $2 ~ /[A-Z]+/)
+        {print $2": " $1}
+        
+        else
+        {res="None: " $1}
+    }END{
+        if (F != 8)
+        {
+        print res
+        }
+        }')
+echo "$RES"
+}
+
+uniq_f()
+        {
+            VAL=$3
+            TMP=$(uniq_counter $1 $2)
+            RES=$(echo "$TMP" | awk -F: \
+            -v VAL="$VAL" \
+            '{
+                 counter=$2/VAL
+            n=counter-(counter%1)
+            res=sprintf("%*s",n, " ")
+            
+                gsub(" ", "#", res);
+               uniq=$1
+               if (n > 1) {
+               printf("%s: %*s\n", uniq,n, res)
+                }
+                else
+                {
+                    print uniq ":"
+                }  
+            }'
+            )
+            echo "$RES"
+        }
+
+age_f()
+        {
+        RES=$(echo $(age_counter $1 $2 $3) | awk -F: \
+        '{
+            counter=$2/10000
+            n=counter-(counter%1)
+            res=sprintf("%*s",n, " ")
+            if ($2 ~ /[0-9]+/)
+            {
+                gsub(" ", "#", res);
+               age=$1
+               if (n > 1) {
+               printf("%s: %*s\n", age,n, res)
+                }
+                else
+                {
+                    print age ":"
+                }
+            }
+        }'
+        )
+        echo "$RES"
+        }
+ 
+if [ "$1" == "-h" ]; then
+help
+exit
+fi
+
+case "$1" in
+
+-a)
+   INPUT=$(cat $3)
+DATE=$2
+AFTER=$(echo "$INPUT" | awk -F, \
+-v DATE_AFTER="$DATE" \
+'{
+    if ($2 ~ /[0-9]{4}-[0-9]{2}-[0-9]{2}+/){
+        if($2 >= DATE_AFTER)
+        {
+          print $0
+        }
+    }
+}'
+ )
+ echo "$AFTER"
+;;
+
+-b)
+INPUT=$(cat $3)
+DATE=$2
+BEFORE=$(echo "$INPUT" | awk -F, \
+-v DATE_BEFORE="$DATE" \
+'{
+    if ($2 ~ /[0-9]{4}-[0-9]{2}-[0-9]{2}+/){
+    if($2 <= DATE_BEFORE)
+    {
+        print $0
+    }
+    }
+}'
+ )
+ echo "$BEFORE"
+;;
+
+-g)
+G=$2
+INPUT=$(cat $3)
+GENDER=$(echo "$INPUT" | awk -F, \
+        -v VAL="$G" \
+        'BEGIN{
+                print "id,datum,vek,pohlavi,kraj_nuts_kod,okres_lau_kod,nakaza_v_zahranici,nakaza_zeme_csu_kod,reportovano_khs"}
+        {  
+            if ($4 == VAL)
+            {
+                print $0
+            }
+        }'
+    )
+        echo "$GENDER"
+;;
+
+gender)
+uniq_counter $2 4
+;;
+infected)
+INPUT=$(cat $2)
+DATE_CHECK=2020-01-01
+INF=$(echo "$INPUT" | awk -F, \
+-v DATE_AFTER="$DATE_CHECK" \
+'{
+    if($2 > DATE_AFTER && $2 ~ /^[0-9]+/)
+    {
+        N++
+    }
+}END{print N}'
+ )
+ echo "$INF"
+;;
+
+daily)
+INPUT=$(cat $2)
+INVALID_DATE=$(echo "$INPUT" | awk -F, \
+'{
+    print $2
+}' | awk -F: '{if ($2 > 12 || $3 > 31) {check=1;print "Invalid date:" $0} }'
+)
+
+RES=$(cut -d , -f 2 $2 | sort | uniq -c | awk -F ' ' \
+'{
+    if ($2 ~ /^[0-9]+/)
+    {
+    print $2 ": " $1
+    }
+}'
+)
+
+echo "$RES"
+echo "$INVALID_DATE"
+echo "$INVALID_AGE"
+;;
+monthly)
+
+RES=$(cat $2 | awk -F, '{print $2}' | cut -d "-" -f 1-2 | sort | uniq -c | awk -F ' ' \
+'{
+    if ($2 ~ /^[0-9]+/)
+    {
+        print $2 ": " $1
+    }
+}'
+)
+echo "$RES"
+;;
+yearly)
+
+RES=$(cat $2 | awk -F, '{print $2}' | cut -d "-" -f 1 | sort | uniq -c | awk -F ' ' \
+'{
+     if ($2 ~ /[0-9]+/)
+    {
+        print $2 ": " $1
+    }
+}'
+)
+echo "$RES"
+;;
+age)
+CHAR=X
+ 
+ age_counter $2 0 5
+ age_counter $2 6 15
+ age_counter $2 16 25
+ age_counter $2 26 35
+ age_counter $2 36 45
+ age_counter $2 46 55
+ age_counter $2 56 65
+ age_counter $2 66 75
+ age_counter $2 76 85
+ age_counter $2 86 95
+ age_counter $2 96 105
+ age_counter $2 106 999
+ age_counter $2 $CHAR $CHAR
+;;
+
+regions)
+uniq_counter $2 5
+;;
+districts)
+uniq_counter $2 6
+;;
+countries)
+uniq_counter $2 8
+;;
+
+
+esac
+
+
+
+if [ "$1" == "-s" ]; then
+    if [ "$#" -eq 3 ]; then
+        if [ "$2" == "daily" ]; then
+            RES=$(cut -d , -f 2 $3 | sort | uniq -c | awk -F ' ' \
+            '{
+                counter=$1/500 
+                n=counter-(counter%1) 
+                res=sprintf("%*s",n, " ") 
+             if ($2 ~ /^[0-9]+/)
+             {
+               gsub(" ", "#", res);
+               date=$2
+               if (n > 1) {
+               printf("%s: %*s\n", date,n, res)
+                }
+                else
+                {
+                    print date ":"
+                }
+             }
+            }'
+            )
+            echo "$RES"
+        fi
+        
+        if [ "$2" == "monthly" ]; then
+        RES=$(cat $3 | awk -F, '{print $2}' | cut -d "-" -f 1-2 | sort | uniq -c | awk -F ' ' \
+        '{
+            counter=$1/10000 
+                n=counter-(counter%1) 
+                res=sprintf("%*s",n, " ")
+            if ($2 ~ /^[0-9]+/)
+            {
+                gsub(" ", "#", res);
+               date=$2
+               if (n > 1) {
+               printf("%s: %*s\n", date,n, res)
+                }
+                else
+                {
+                    print date ":"
+                }
+            }
+        }'
+        )
+            echo "$RES"
+        fi
+
+        if [ "$2" == "yearly" ]; then
+        RES=$(cat $3 | awk -F, '{print $2}' | cut -d "-" -f 1 | sort | uniq -c | awk -F ' ' \
+        '{
+            counter=$1/100000 
+                n=counter-(counter%1) 
+                res=sprintf("%*s",n, " ")
+            if ($2 ~ /[0-9]+/)
+            {
+                gsub(" ", "#", res);
+               date=$2
+               if (n > 1) {
+               printf("%s: %*s\n", date,n, res)
+                }
+                else
+                {
+                    print date ":"
+                }
+            }
+        }'
+        )
+            echo "$RES"
+        fi
+
+        if [ "$2" == "age" ]; then
+        age_f $3 0 5
+        age_f $3 6 15
+        age_f $3 16 25
+        age_f $3 26 35
+        age_f $3 36 45
+        age_f $3 46 55
+        age_f $3 56 65
+        age_f $3 66 75
+        age_f $3 76 85
+        age_f $3 86 95
+        age_f $3 96 105
+        age_f $3 105 999
+        age_f $3 X
+    
+        fi
+
+        if [ "$2" == "regions" ]; then
+        uniq_f $3 5 10000
+        fi
+
+        if [ "$2" == "districts" ]; then
+        uniq_f $3 6 1000
+        fi
+
+        if [ "$2" == "countries" ]; then
+        uniq_f $3 8 100
+        fi
+
+        if [ "$2" == "gender" ]; then
+            uniq_f $3 4 100000
+        fi
+    fi
+fi
